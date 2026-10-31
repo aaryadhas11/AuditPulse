@@ -1,5 +1,16 @@
-streamlit
+fastapi
+uvicorn
+python-multipart
 google-genai
+pydantic
 pandas
+numpy
 pillow
 python-dotenv
+streamlit
+sqlalchemy
+pymysql
+pyjwt
+bcrypt
+pytest
+httpx
