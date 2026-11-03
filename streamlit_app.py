@@ -13,13 +13,15 @@ from database import (
     get_dashboard_stats,
     verify_password,
     calculate_confidence_score,
+    get_mysql_connection as get_db_mysql_connection,
     DB_TYPE
 )
 from extractor import (
     get_ai_client,
     parse_receipt_image,
     generate_receipt_embedding,
-    fallback_heuristic_extraction
+    fallback_heuristic_extraction,
+    get_gemini_api_key
 )
 from auditor import (
     run_comprehensive_audit,
@@ -27,6 +29,35 @@ from auditor import (
     format_items_dataframe
 )
 from vector_store import policy_vector_store, audit_vector_memory
+
+# -------------------------------------------------------------------------------------------------
+# STREAMLIT COMMUNITY CLOUD SECRETS & CLOUD ADAPTERS
+# -------------------------------------------------------------------------------------------------
+def get_mysql_connection():
+    """
+    Connects to MySQL dynamically reading credentials from Streamlit Community Cloud:
+      st.secrets["DB_HOST"], st.secrets["DB_USER"], st.secrets["DB_PASSWORD"],
+      st.secrets["DB_NAME"], and st.secrets.get("DB_PORT", 3306).
+    """
+    import mysql.connector
+    try:
+        return mysql.connector.connect(
+            host=st.secrets["DB_HOST"],
+            user=st.secrets["DB_USER"],
+            password=st.secrets["DB_PASSWORD"],
+            database=st.secrets["DB_NAME"],
+            port=int(st.secrets.get("DB_PORT", 3306))
+        )
+    except Exception:
+        return get_db_mysql_connection()
+
+# Initialize Google Gemini using st.secrets["GEMINI_API_KEY"]
+try:
+    import google.generativeai as genai_legacy
+    if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
+        genai_legacy.configure(api_key=st.secrets["GEMINI_API_KEY"])
+except Exception:
+    pass
 
 # Page Configuration
 st.set_page_config(
@@ -141,9 +172,20 @@ with st.sidebar:
     )
     
     st.divider()
-    st.markdown(f"**Database:** `{DB_TYPE.upper()}`")
+    has_db_secret = False
+    has_gemini_secret = False
+    try:
+        if hasattr(st, "secrets"):
+            has_db_secret = bool("DB_HOST" in st.secrets)
+            has_gemini_secret = bool("GEMINI_API_KEY" in st.secrets)
+    except Exception:
+        pass
+
+    db_source = "st.secrets" if has_db_secret else ("MySQL" if DB_TYPE == "mysql" else "SQLite")
+    gemini_source = "st.secrets" if has_gemini_secret else ("Env" if os.getenv("GEMINI_API_KEY") else "Rule Engine")
+    st.markdown(f"**Database:** `{DB_TYPE.upper()}` (`{db_source}`)")
+    st.markdown(f"**AI Vision:** `Gemini` (`{gemini_source}`)")
     st.markdown("**Compliance Engine:** `CGST Act §16/§17(5)`")
-    st.markdown("**AI Vision:** `Gemini 2.5 Flash / Fallback`")
 
 # -------------------------------------------------------------------------------------------------
 # TAB 1: EXECUTIVE DASHBOARD

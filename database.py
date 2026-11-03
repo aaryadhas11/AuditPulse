@@ -7,6 +7,7 @@ from urllib.parse import quote_plus
 from dotenv import load_dotenv
 import bcrypt
 import jwt
+import mysql.connector
 from sqlalchemy import (
     create_engine,
     Column,
@@ -102,19 +103,97 @@ class AdminUser(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+def get_db_credentials() -> Dict[str, Any]:
+    """
+    Dynamically retrieves MySQL database credentials from Streamlit Community Cloud
+    secure configuration (st.secrets) or environment variables (.env / os.environ).
+    """
+    host = None
+    user = None
+    password = None
+    name = None
+    port = 3306
+
+    # 1. Primary: Streamlit Community Cloud secure configuration (st.secrets)
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and "DB_HOST" in st.secrets:
+            host = st.secrets["DB_HOST"]
+            user = st.secrets["DB_USER"]
+            password = st.secrets["DB_PASSWORD"]
+            name = st.secrets["DB_NAME"]
+            port = int(st.secrets.get("DB_PORT", 3306))
+    except Exception:
+        pass
+
+    # 2. Secondary: Fallback to environment variables
+    if not host:
+        host = os.getenv("DB_HOST", "localhost")
+    if not user:
+        user = os.getenv("DB_USER", "root")
+    if password is None:
+        password = os.getenv("DB_PASSWORD", "")
+    if not name:
+        name = os.getenv("DB_NAME", "auditpulse")
+    if not port:
+        try:
+            port = int(os.getenv("DB_PORT", 3306))
+        except Exception:
+            port = 3306
+
+    return {
+        "host": host,
+        "user": user,
+        "password": password,
+        "name": name,
+        "port": port,
+    }
+
+
+def get_mysql_connection():
+    """
+    Connects to MySQL dynamically reading credentials using:
+      st.secrets["DB_HOST"], st.secrets["DB_USER"], st.secrets["DB_PASSWORD"],
+      st.secrets["DB_NAME"], and st.secrets.get("DB_PORT", 3306).
+    Falls back gracefully to environment variables if st.secrets is unavailable.
+    """
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and "DB_HOST" in st.secrets:
+            return mysql.connector.connect(
+                host=st.secrets["DB_HOST"],
+                user=st.secrets["DB_USER"],
+                password=st.secrets["DB_PASSWORD"],
+                database=st.secrets["DB_NAME"],
+                port=int(st.secrets.get("DB_PORT", 3306)),
+            )
+    except Exception as e:
+        logger.debug(f"Direct st.secrets mysql.connector attempt note: {e}")
+
+    creds = get_db_credentials()
+    return mysql.connector.connect(
+        host=creds["host"] or "localhost",
+        user=creds["user"] or "root",
+        password=creds["password"] or "",
+        database=creds["name"] or "auditpulse",
+        port=int(creds["port"] or 3306),
+    )
+
+
 def build_database_url() -> str:
-    """Builds MySQL URL from standard environment variables, or falls back to SQLite."""
+    """Builds MySQL URL from st.secrets or standard environment variables, or falls back to SQLite."""
     db_url = os.getenv("DATABASE_URL")
     if db_url:
         return db_url
 
-    db_user = os.getenv("DB_USER")
-    db_password = os.getenv("DB_PASSWORD")
-    db_host = os.getenv("DB_HOST", "localhost")
-    db_port = os.getenv("DB_PORT", "3306")
-    db_name = os.getenv("DB_NAME", "auditpulse")
+    creds = get_db_credentials()
+    db_host = creds["host"]
+    db_user = creds["user"]
+    db_password = creds["password"]
+    db_name = creds["name"]
+    db_port = creds["port"]
 
-    if db_user and db_password is not None:
+    if db_user and db_password is not None and db_host:
         user_enc = quote_plus(str(db_user))
         pass_enc = quote_plus(str(db_password))
         return f"mysql+pymysql://{user_enc}:{pass_enc}@{db_host}:{db_port}/{db_name}?charset=utf8mb4"
@@ -129,11 +208,13 @@ def get_engine_and_session():
 
     if is_mysql:
         try:
-            db_user = os.getenv("DB_USER", "root")
-            db_password = os.getenv("DB_PASSWORD", "")
-            db_host = os.getenv("DB_HOST", "localhost")
-            db_port = os.getenv("DB_PORT", "3306")
-            db_name = os.getenv("DB_NAME", "auditpulse")
+            creds = get_db_credentials()
+            db_user = creds["user"] or "root"
+            db_password = creds["password"] or ""
+            db_host = creds["host"] or "localhost"
+            db_port = creds["port"] or 3306
+            db_name = creds["name"] or "auditpulse"
+
             root_url = f"mysql+pymysql://{quote_plus(db_user)}:{quote_plus(db_password)}@{db_host}:{db_port}/?charset=utf8mb4"
             
             temp_eng = create_engine(root_url, connect_args={"connect_timeout": 3})
@@ -241,9 +322,21 @@ def seed_initial_data(db: Session):
     """Provisions default Admin user and seed records if tables are fresh."""
     # 1. Ensure default Admin exists
     admin = db.query(AdminUser).filter(AdminUser.username == "admin").first()
+    default_admin_user = os.getenv("ADMIN_USERNAME", "admin")
+    default_admin_pass = os.getenv("ADMIN_PASSWORD")
+
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets"):
+            default_admin_user = st.secrets.get("ADMIN_USERNAME", default_admin_user)
+            default_admin_pass = st.secrets.get("ADMIN_PASSWORD", default_admin_pass)
+    except Exception:
+        pass
+
+    if not default_admin_pass:
+        default_admin_pass = os.getenv("ADMIN_DEFAULT_PASSWORD", "admin")
+
     if not admin:
-        default_admin_user = os.getenv("ADMIN_USERNAME", "admin")
-        default_admin_pass = os.getenv("ADMIN_PASSWORD", "AuditPulse@2026")
         default_admin = AdminUser(
             username=default_admin_user,
             password_hash=hash_password(default_admin_pass),
@@ -253,6 +346,10 @@ def seed_initial_data(db: Session):
         db.add(default_admin)
         db.commit()
         print(f"[AuditPulse DB] Provisioned initial administrator account: '{default_admin_user}'.")
+    elif default_admin_pass:
+        # Synchronize password hash with configured secret
+        admin.password_hash = hash_password(default_admin_pass)
+        db.commit()
 
     # 2. Seed initial sample records if audit_records is empty
     count = db.query(AuditRecord).count()

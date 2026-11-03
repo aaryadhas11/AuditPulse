@@ -155,7 +155,7 @@ class TestDatabaseAndSecurity(unittest.TestCase):
     """Verification for bcrypt security, JWT claims, and dashboard stats."""
 
     def test_password_hashing_and_jwt(self):
-        plain = "AuditPulse@SecurePass2026"
+        plain = "test_verification_pass_xyz"
         hashed = hash_password(plain)
         self.assertNotEqual(plain, hashed)
         self.assertTrue(verify_password(plain, hashed))
@@ -238,8 +238,10 @@ class TestFastAPIIntegration(unittest.TestCase):
         res_unauth = self.client.get("/api/admin/audit-logs")
         self.assertEqual(res_unauth.status_code, 401)
 
-        # 2. Login with valid admin credentials
-        res_login = self.client.post("/api/auth/login", json={"username": "admin", "password": "AuditPulse@2026"})
+        # 2. Login with valid admin credentials (configured dynamically via secrets/environment)
+        admin_user = os.getenv("ADMIN_USERNAME", "admin")
+        admin_pass = os.getenv("ADMIN_PASSWORD", "admin")
+        res_login = self.client.post("/api/auth/login", json={"username": admin_user, "password": admin_pass})
         self.assertEqual(res_login.status_code, 200)
         token = res_login.json()["access_token"]
 

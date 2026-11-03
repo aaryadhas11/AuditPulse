@@ -87,18 +87,38 @@ cd reciept-ai-scanner
 pip install -r requirements.txt
 ```
 
-### 2. Configure Environment (`.env`)
-Create or edit `.env` in the project root:
+### 2. Configure Streamlit Community Cloud Secrets or Local Environment
+For **Streamlit Community Cloud**, configure secrets in **App Settings -> Secrets**:
+```toml
+# Google Gemini API Key
+GEMINI_API_KEY = "your-gemini-api-key"
+
+# MySQL Database Configuration
+DB_HOST = "your-mysql-host.example.com"
+DB_USER = "your-database-username"
+DB_PASSWORD = "your-database-password"
+DB_NAME = "auditpulse"
+DB_PORT = 3306
+
+# Administrator Authentication Gateway
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = "your-secure-admin-password"
+```
+
+For **Local Development**, copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml` or create `.env`:
 ```env
 GEMINI_API_KEY="your-gemini-api-key"
 JWT_SECRET="auditpulse-corporate-jwt-secret-2026-secure-key"
 
-# Database Configuration (Optional - Defaults to SQLite if unset)
+# Database Configuration (Optional - Defaults to SQLite if MySQL is unset)
 DB_USER="root"
 DB_PASSWORD=""
 DB_HOST="localhost"
 DB_PORT="3306"
 DB_NAME="auditpulse"
+
+ADMIN_USERNAME="admin"
+ADMIN_PASSWORD="your-secure-admin-password"
 ```
 
 ### 3. Run Automated Test Suite
@@ -111,12 +131,12 @@ pytest -v tests/test_auditpulse.py
 
 ## Running the Applications
 
-### Option A: Launch Streamlit Dashboard (Python Native)
+### Option A: Launch Streamlit Dashboard (Python Native / Cloud Ready)
 ```powershell
 streamlit run streamlit_app.py
 ```
 - Open [http://localhost:8501](http://localhost:8501)
-- Admin Login: `admin` / `AuditPulse@2026`
+- Admin Login: Sign in with the administrator credentials configured in `st.secrets` or `ADMIN_PASSWORD`.
 
 ### Option B: Launch Full-Stack Enterprise Stack (FastAPI + Next.js)
 
@@ -133,7 +153,7 @@ npm install
 npm run dev
 ```
 - Open [http://localhost:3000](http://localhost:3000)
-- Admin Login: `admin` / `AuditPulse@2026`
+- Admin Login: Sign in with the credentials set in your environment / secrets configuration.
 
 ---
 

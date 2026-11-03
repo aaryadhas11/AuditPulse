@@ -14,43 +14,61 @@ except ImportError:
     genai = None
     types = None
 
+try:
+    import google.generativeai as genai_legacy
+except ImportError:
+    genai_legacy = None
+
 load_dotenv()
 logger = logging.getLogger("auditpulse.extractor")
 
-API_KEY = os.getenv("GEMINI_API_KEY")
+def get_gemini_api_key() -> Optional[str]:
+    """
+    Dynamically retrieves GEMINI_API_KEY from Streamlit Community Cloud secure
+    configuration (st.secrets["GEMINI_API_KEY"]) or environment variables.
+    """
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
+            key = st.secrets["GEMINI_API_KEY"]
+            if key and str(key).strip():
+                return str(key).strip()
+    except Exception:
+        pass
 
-class LineItem(BaseModel):
-    item_name: str = Field(description="Name or description of the purchased item or service")
-    quantity: float = Field(default=1.0, description="Quantity purchased")
-    price: float = Field(description="Total price or unit price for this line item")
-    sac_or_hsn: Optional[str] = Field(default="N/A", description="Harmonized System of Nomenclature (HSN) or SAC code if printed")
+    env_key = os.getenv("GEMINI_API_KEY")
+    if env_key and env_key.strip():
+        return env_key.strip()
+    return None
 
-class ReceiptSchema(BaseModel):
-    merchant_name: str = Field(description="Name of the establishment, store, carrier, hotel, or vendor")
-    invoice_number: Optional[str] = Field(default="N/A", description="Invoice, Tax Bill, or Folio/PNR reference number")
-    gstin: Optional[str] = Field(default="N/A", description="15-character statutory Indian GSTIN or Tax ID if present, otherwise 'N/A'")
-    date: str = Field(description="Date of invoice/receipt in YYYY-MM-DD or printed format, or 'N/A'")
-    expense_category: str = Field(
-        default="General",
-        description="Category: Food & Dining, Travel & Fuel, Software & Tech, Office Supplies, Accommodation, or Miscellaneous"
-    )
-    currency: str = Field(default="₹", description="Currency symbol detected (e.g., ₹, $, €, £)")
-    subtotal: float = Field(default=0.0, description="Gross total before taxes and fees")
-    tax_amount: float = Field(default=0.0, description="Total statutory taxes (GST, VAT, service tax)")
-    cgst: Optional[float] = Field(default=0.0, description="Central GST amount if printed")
-    sgst: Optional[float] = Field(default=0.0, description="State GST amount if printed")
-    igst: Optional[float] = Field(default=0.0, description="Integrated GST amount if printed")
-    grand_total: float = Field(description="Final paid invoice amount")
-    payment_mode: Optional[str] = Field(default="Corporate Card", description="Payment method (Card, UPI, Cash, Corporate Account)")
-    items: List[LineItem] = Field(default_factory=list, description="List of itemized line items")
-    confidence_score: Optional[float] = Field(default=95.0, description="Self-assessed extraction quality score (0-100)")
+def configure_gemini() -> Optional[Any]:
+    """
+    Configures Google Gemini using st.secrets["GEMINI_API_KEY"] or environment.
+    Initializes both google-generativeai and google-genai clients.
+    """
+    api_key = get_gemini_api_key()
+    if not api_key:
+        return None
+
+    # Configure google-generativeai SDK
+    if genai_legacy is not None:
+        try:
+            genai_legacy.configure(api_key=api_key)
+        except Exception as e:
+            logger.debug(f"google-generativeai configuration notice: {e}")
+
+    # Initialize google-genai Client
+    if genai is not None:
+        try:
+            return genai.Client(api_key=api_key)
+        except Exception as e:
+            logger.warning(f"google-genai Client initialization notice: {e}")
+
+    return None
 
 def get_ai_client():
-    """Returns an authenticated Gemini Client instance if API key is present."""
-    api_key = os.getenv("GEMINI_API_KEY")
-    if api_key and genai is not None:
-        return genai.Client(api_key=api_key)
-    return None
+    """Returns an authenticated Gemini Client instance configured using st.secrets['GEMINI_API_KEY']."""
+    return configure_gemini()
 
 def prepare_multimodal_part(image_input: Any) -> Any:
     """
